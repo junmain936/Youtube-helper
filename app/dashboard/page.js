@@ -77,6 +77,9 @@ export default function Dashboard() {
   const [aiTags, setAiTags] = useState([]);
 
   const [toast, setToast] = useState('');
+  const [optimizingDesc, setOptimizingDesc] = useState(false);
+  const [aiDescription, setAiDescription] = useState('');
+  
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/');
@@ -108,6 +111,23 @@ export default function Dashboard() {
       setError(e.message);
     }
     setLoading(false);
+  }
+  async function optimizeDescription() {
+  setOptimizingDesc(true);
+  setAiDescription('');
+  try {
+    const res = await fetch('/api/youtube/optimize-description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setAiDescription(data.description);
+  } catch (e) {
+    showToast('❌ ' + e.message);
+  }
+  setOptimizingDesc(false);
   }
 
   async function generateTags() {
@@ -293,6 +313,37 @@ export default function Dashboard() {
                 <span style={{ fontSize: 10, fontWeight: 700, color: description.length >= 200 ? '#22c55e' : '#f59e0b' }}>{description.length} chars</span>
               </div>
               <textarea value={description} onChange={e => setDescription(e.target.value)} rows={5} style={{ ...inputStyle, resize: 'vertical' }} />
+              {/* AI Optimize Button */}
+<button onClick={optimizeDescription} disabled={optimizingDesc}
+  style={{
+    width: '100%', padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
+    cursor: optimizingDesc ? 'not-allowed' : 'pointer', border: '1px solid #7c3aed44',
+    background: optimizingDesc ? '#1a1a1a' : '#1a0a2e',
+    color: optimizingDesc ? '#444' : '#a78bfa',
+    marginBottom: 8,
+  }}>
+  {optimizingDesc ? '✨ Optimizing...' : '✨ AI Optimize Description'}
+</button>
+
+{/* AI Description Preview */}
+{aiDescription && (
+  <div style={{ background: '#0e0a1a', border: '1px solid #7c3aed33', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+    <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, marginBottom: 8 }}>AI OPTIMIZED DESCRIPTION</div>
+    <div style={{ fontSize: 12, color: '#888', whiteSpace: 'pre-wrap', marginBottom: 10, maxHeight: 150, overflowY: 'auto' }}>
+      {aiDescription}
+    </div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <button onClick={() => { setDescription(aiDescription); setAiDescription(''); showToast('✅ Applied!'); }}
+        style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #7c3aed44', background: '#1a0a2e', color: '#a78bfa' }}>
+        ✓ Apply
+      </button>
+      <button onClick={() => setAiDescription('')}
+        style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #333', background: '#1a1a1a', color: '#555' }}>
+        ✕ Dismiss
+      </button>
+    </div>
+  </div>
+)}
               <SaveBtn saving={saving.description} saved={saved.description} onClick={() => saveField('description')} />
             </div>
 
