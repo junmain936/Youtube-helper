@@ -16,22 +16,20 @@ const handler = NextAuth({
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
+  session: {
+    strategy: 'jwt', // 👈 yeh add kiya
+  },
   callbacks: {
     async jwt({ token, account }) {
-      // Pehli baar login — save karo sab
       if (account) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
-        token.expiresAt = account.expires_at; // 👈 yeh missing tha
+        token.expiresAt = account.expires_at;
         return token;
       }
-
-      // Token abhi valid hai
       if (Date.now() < token.expiresAt * 1000) {
         return token;
       }
-
-      // Token expire — refresh karo
       const res = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         body: new URLSearchParams({
@@ -41,24 +39,17 @@ const handler = NextAuth({
           refresh_token: token.refreshToken,
         }),
       });
-
       const refreshed = await res.json();
-
-      if (refreshed.error) {
-        // Refresh bhi fail — user ko re-login karana hoga
-        return { ...token, error: 'RefreshTokenError' };
-      }
-
+      if (refreshed.error) return { ...token, error: 'RefreshTokenError' };
       return {
         ...token,
         accessToken: refreshed.access_token,
         expiresAt: Math.floor(Date.now() / 1000 + refreshed.expires_in),
       };
     },
-
     async session({ session, token }) {
-      session.accessToken = token.accessToken;
-      session.error = token.error; // frontend pe handle kar sakta hai
+      session.accessToken = token.accessToken; // 👈 yahi important hai
+      session.error = token.error;
       return session;
     },
   },
