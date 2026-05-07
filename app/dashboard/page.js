@@ -88,6 +88,7 @@ export default function Dashboard() {
   }
 
   async function fetchVideo() {
+    console.log('AccessToken:', session?.accessToken);
     if (!url.trim()) return;
     setLoading(true);
     setError('');
@@ -220,6 +221,10 @@ export default function Dashboard() {
           </div>
           {error && <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>❌ {error}</div>}
         </div>
+{/* Debug */}
+<div style={{color:'yellow', fontSize:10, padding:8, wordBreak:'break-all'}}>
+  Token: {session?.accessToken ? session.accessToken.slice(0,30) + '...' : 'MISSING ❌'}
+</div>
 
         {video && (
           <>
