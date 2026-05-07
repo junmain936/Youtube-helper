@@ -3,143 +3,355 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+function auditScore(title, description, tags) {
+  let score = 0;
+  const issues = [];
+  const good = [];
+
+  // Title checks
+  if (title.length >= 40 && title.length <= 70) { score += 25; good.push('Title length perfect (40-70 chars)'); }
+  else if (title.length > 0 && title.length < 40) { score += 10; issues.push(`Title too short (${title.length} chars, aim 40-70)`); }
+  else if (title.length > 70) { score += 15; issues.push(`Title too long (${title.length} chars, aim 40-70)`); }
+  else { issues.push('Title is empty'); }
+
+  // Description checks
+  if (description.length >= 200) { score += 25; good.push('Description is detailed (200+ chars)'); }
+  else if (description.length >= 100) { score += 15; issues.push('Description could be longer (aim 200+ chars)'); }
+  else if (description.length > 0) { score += 5; issues.push(`Description too short (${description.length} chars, aim 200+)`); }
+  else { issues.push('Description is empty'); }
+
+  // Tags checks
+  if (tags.length >= 8) { score += 25; good.push(`Good number of tags (${tags.length})`); }
+  else if (tags.length >= 4) { score += 15; issues.push(`Add more tags (${tags.length}/8+ recommended)`); }
+  else if (tags.length > 0) { score += 5; issues.push(`Very few tags (${tags.length}, add at least 8)`); }
+  else { issues.push('No tags — add at least 8 tags'); }
+
+  // Keywords in title also in tags
+  const titleWords = title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  const tagWords = tags.map(t => t.toLowerCase());
+  const matched = titleWords.filter(w => tagWords.some(t => t.includes(w)));
+  if (matched.length >= 2) { score += 15; good.push('Title keywords found in tags'); }
+  else { score += 5; issues.push('Add title keywords in tags too'); }
+
+  // Description has links or timestamps
+  if (description.includes('http') || description.includes('www')) { score += 5; good.push('Description has links'); }
+  else { issues.push('Add links in description (socials, website)'); }
+
+  if (description.match(/\d+:\d+/)) { score += 5; good.push('Timestamps in description'); }
+
+  return { score: Math.min(score, 100), issues, good };
+}
+
+function ScoreRing({ score }) {
+  const color = score >= 75 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444';
+  const label = score >= 75 ? 'Great' : score >= 50 ? 'Fair' : 'Poor';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{
+        width: 80, height: 80, borderRadius: '50%',
+        background: `conic-gradient(${color} ${score * 3.6}deg, #1e1e1e 0deg)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: `0 0 20px ${color}44`
+      }}>
+        <div style={{
+          width: 62, height: 62, borderRadius: '50%', background: '#111',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <span style={{ fontSize: 18, fontWeight: 900, color }}>{score}</span>
+          <span style={{ fontSize: 9, color: '#555', fontWeight: 700 }}>/100</span>
+        </div>
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 800, color }}>{label}</span>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
-  const [saving, setSaving] = useState(false);
+
+  const [url, setUrl] = useState('');
+  const [video, setVideo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Editable fields
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState('');
+
+  // Saving state per field
+  const [saving, setSaving] = useState({ title: false, description: false, tags: false });
+  const [saved, setSaved] = useState({ title: false, description: false, tags: false });
+
   const [toast, setToast] = useState('');
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/');
-    if (session) fetchVideos();
-  }, [session, status]);
+  }, [status]);
 
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
   }
 
-  async function fetchVideos() {
+  async function fetchVideo() {
+    if (!url.trim()) return;
     setLoading(true);
+    setError('');
+    setVideo(null);
     try {
-      const res = await fetch('/api/youtube/videos', {
+      const res = await fetch(`/api/youtube/video?url=${encodeURIComponent(url)}`, {
         headers: { Authorization: `Bearer ${session.accessToken}` }
       });
       const data = await res.json();
-      setVideos(data.videos || []);
+      if (data.error) throw new Error(data.error);
+      setVideo(data.video);
+      setTitle(data.video.title);
+      setDescription(data.video.description);
+      setTags(data.video.tags.join(', '));
     } catch (e) {
-      showToast('❌ Videos load nahi hue');
+      setError(e.message);
     }
     setLoading(false);
   }
 
-  async function saveVideo() {
-    setSaving(true);
+  async function saveField(field) {
+    setSaving(s => ({ ...s, [field]: true }));
     try {
+      const payload = {
+        videoId: video.id,
+        title: field === 'title' ? title : video.title,
+        description: field === 'description' ? description : video.description,
+        tags: field === 'tags' ? tags.split(',').map(t => t.trim()).filter(Boolean) : video.tags,
+        categoryId: video.categoryId,
+      };
+      // Update local video state too
+      if (field === 'title') setVideo(v => ({ ...v, title }));
+      if (field === 'description') setVideo(v => ({ ...v, description }));
+      if (field === 'tags') setVideo(v => ({ ...v, tags: payload.tags }));
+
       const res = await fetch('/api/youtube/update', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          videoId: editing.id,
-          title: editing.title,
-          description: editing.description,
-          tags: editing.tags,
-          categoryId: editing.categoryId,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setVideos(v => v.map(vid => vid.id === editing.id ? { ...vid, ...editing } : vid));
-      setEditing(null);
-      showToast('✅ Saved!');
+      setSaved(s => ({ ...s, [field]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [field]: false })), 2000);
+      showToast(`✅ ${field.charAt(0).toUpperCase() + field.slice(1)} saved!`);
     } catch (e) {
       showToast('❌ ' + e.message);
     }
-    setSaving(false);
+    setSaving(s => ({ ...s, [field]: false }));
   }
 
-  if (status === 'loading' || loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 14 }}>
+  const audit = video ? auditScore(title, description, tags.split(',').map(t => t.trim()).filter(Boolean)) : null;
+
+  if (status === 'loading') return (
+    <div style={{ minHeight: '100vh', background: '#080808', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>
       Loading...
     </div>
   );
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#eee', fontFamily: 'sans-serif' }}>
-      {/* Topbar */}
-      <div style={{ background: '#111', borderBottom: '1px solid #1e1e1e', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ fontSize: 15, fontWeight: 800 }}>🎬 YouTube Editor</div>
+    <div style={{ minHeight: '100vh', background: '#080808', color: '#eee', fontFamily: "'DM Sans', sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+
+      {/* Header */}
+      <div style={{ background: '#0e0e0e', borderBottom: '1px solid #1a1a1a', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 28, height: 28, background: '#ff0000', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>▶</div>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>YT Audit</span>
+        </div>
         <button onClick={() => signOut({ callbackUrl: '/' })}
-          style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          style={{ background: 'none', border: '1px solid #222', color: '#555', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
           Logout
         </button>
       </div>
 
-      {/* Videos List */}
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 600, margin: '0 auto' }}>
-        {videos.map(v => (
-          <div key={v.id} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 14, padding: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <img src={v.thumbnail} style={{ width: 90, height: 56, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#eee', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</div>
-              <div style={{ fontSize: 11, color: '#555', marginBottom: 8 }}>
-                🏷️ {v.tags.length > 0 ? `${v.tags.length} tags` : 'No tags'}
-              </div>
-              <button onClick={() => setEditing({ ...v, tags: [...v.tags] })}
-                style={{ background: '#1a1a1a', border: '1px solid #333', color: '#aaa', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                ✏️ Edit
-              </button>
-            </div>
+      <div style={{ padding: '20px 16px', maxWidth: 600, margin: '0 auto' }}>
+
+        {/* URL Input */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, color: '#444', fontWeight: 700, marginBottom: 8, letterSpacing: '0.08em' }}>YOUTUBE VIDEO URL</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && fetchVideo()}
+              placeholder="https://youtube.com/watch?v=..."
+              style={{
+                flex: 1, background: '#111', border: '1px solid #1e1e1e', borderRadius: 10,
+                padding: '12px 14px', color: '#eee', fontSize: 13, outline: 'none',
+                fontFamily: 'inherit'
+              }}
+            />
+            <button onClick={fetchVideo} disabled={loading || !url.trim()}
+              style={{
+                background: loading ? '#111' : '#ff0000', border: 'none', borderRadius: 10,
+                padding: '12px 18px', color: '#fff', fontSize: 13, fontWeight: 800,
+                cursor: loading ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+                opacity: !url.trim() ? 0.4 : 1
+              }}>
+              {loading ? '...' : 'Fetch'}
+            </button>
           </div>
-        ))}
-      </div>
-
-      {/* Edit Modal */}
-      {editing && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', padding: 16 }}>
-          <div style={{ background: '#111', border: '1px solid #222', borderRadius: 20, padding: 20, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 16 }}>✏️ Edit Video</div>
-
-            <div style={{ fontSize: 11, color: '#555', fontWeight: 700, marginBottom: 6 }}>TITLE</div>
-            <input value={editing.title} onChange={e => setEditing(ed => ({ ...ed, title: e.target.value }))}
-              style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: '10px 12px', color: '#eee', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 14 }} />
-
-            <div style={{ fontSize: 11, color: '#555', fontWeight: 700, marginBottom: 6 }}>DESCRIPTION</div>
-            <textarea value={editing.description} onChange={e => setEditing(ed => ({ ...ed, description: e.target.value }))}
-              rows={4}
-              style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: '10px 12px', color: '#eee', fontSize: 13, fontWeight: 600, outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 14 }} />
-
-            <div style={{ fontSize: 11, color: '#555', fontWeight: 700, marginBottom: 6 }}>TAGS (comma separated)</div>
-            <textarea value={editing.tags.join(', ')} onChange={e => setEditing(ed => ({ ...ed, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) }))}
-              rows={3}
-              style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: '10px 12px', color: '#eee', fontSize: 13, fontWeight: 600, outline: 'none', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 20 }} />
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={saveVideo} disabled={saving}
-                style={{ flex: 2, background: saving ? '#111' : 'linear-gradient(135deg,#1a4a1a,#0d2a0d)', border: '1px solid #2a6a2a', color: saving ? '#444' : '#44bb66', borderRadius: 10, padding: '12px', fontSize: 13, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                {saving ? 'Saving...' : '✅ Save to YouTube'}
-              </button>
-              <button onClick={() => setEditing(null)}
-                style={{ flex: 1, background: '#111', border: '1px solid #333', color: '#666', borderRadius: 10, padding: '12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                Cancel
-              </button>
-            </div>
-          </div>
+          {error && <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>❌ {error}</div>}
         </div>
-      )}
+
+        {/* Video Card */}
+        {video && (
+          <>
+            {/* Thumbnail + Stats */}
+            <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+              <img src={video.thumbnail} style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
+              <div style={{ padding: '12px 14px', display: 'flex', gap: 16 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{parseInt(video.viewCount).toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>VIEWS</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{parseInt(video.likeCount).toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>LIKES</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{parseInt(video.commentCount).toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>COMMENTS</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: video.privacyStatus === 'public' ? '#22c55e' : '#f59e0b' }}>
+                    {video.privacyStatus === 'public' ? '🌐' : '🔒'}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#444', fontWeight: 700 }}>{(video.privacyStatus || '').toUpperCase()}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Audit Score */}
+            <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 14, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
+                <ScoreRing score={audit.score} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 }}>SEO Audit Score</div>
+                  <div style={{ fontSize: 11, color: '#444' }}>Based on title, description & tags</div>
+                </div>
+              </div>
+
+              {audit.issues.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  {audit.issues.map((issue, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
+                      <span style={{ color: '#ef4444', fontSize: 11, marginTop: 1 }}>✗</span>
+                      <span style={{ fontSize: 11, color: '#888' }}>{issue}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {audit.good.map((g, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
+                  <span style={{ color: '#22c55e', fontSize: 11, marginTop: 1 }}>✓</span>
+                  <span style={{ fontSize: 11, color: '#666' }}>{g}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Title Edit */}
+            <EditCard
+              label="TITLE"
+              hint={`${title.length} chars`}
+              hintColor={title.length >= 40 && title.length <= 70 ? '#22c55e' : '#f59e0b'}
+            >
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                style={inputStyle}
+              />
+              <SaveBtn saving={saving.title} saved={saved.title} onClick={() => saveField('title')} />
+            </EditCard>
+
+            {/* Description Edit */}
+            <EditCard
+              label="DESCRIPTION"
+              hint={`${description.length} chars`}
+              hintColor={description.length >= 200 ? '#22c55e' : '#f59e0b'}
+            >
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={5}
+                style={{ ...inputStyle, resize: 'vertical' }}
+              />
+              <SaveBtn saving={saving.description} saved={saved.description} onClick={() => saveField('description')} />
+            </EditCard>
+
+            {/* Tags Edit */}
+            <EditCard
+              label="TAGS"
+              hint={`${tags.split(',').filter(t => t.trim()).length} tags`}
+              hintColor={tags.split(',').filter(t => t.trim()).length >= 8 ? '#22c55e' : '#f59e0b'}
+            >
+              <textarea
+                value={tags}
+                onChange={e => setTags(e.target.value)}
+                rows={3}
+                placeholder="tag1, tag2, tag3..."
+                style={{ ...inputStyle, resize: 'none' }}
+              />
+              <SaveBtn saving={saving.tags} saved={saved.tags} onClick={() => saveField('tags')} />
+            </EditCard>
+          </>
+        )}
+      </div>
 
       {/* Toast */}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: '#222', border: '1px solid #333', color: '#eee', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 700, zIndex: 9999 }}>
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#eee',
+          borderRadius: 10, padding: '10px 20px', fontSize: 12, fontWeight: 700, zIndex: 9999,
+          whiteSpace: 'nowrap'
+        }}>
           {toast}
         </div>
       )}
     </div>
+  );
+}
+
+const inputStyle = {
+  width: '100%', background: '#0e0e0e', border: '1px solid #222', borderRadius: 10,
+  padding: '10px 12px', color: '#eee', fontSize: 13, fontWeight: 600, outline: 'none',
+  fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 10,
+};
+
+function EditCard({ label, hint, hintColor, children }) {
+  return (
+    <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 14, padding: 14, marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 10, color: '#444', fontWeight: 800, letterSpacing: '0.08em' }}>{label}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: hintColor }}>{hint}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SaveBtn({ saving, saved, onClick }) {
+  return (
+    <button onClick={onClick} disabled={saving}
+      style={{
+        width: '100%', padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
+        cursor: saving ? 'not-allowed' : 'pointer', border: 'none',
+        background: saved ? '#14532d' : saving ? '#1a1a1a' : '#1a1a1a',
+        color: saved ? '#22c55e' : saving ? '#444' : '#888',
+        transition: 'all 0.2s',
+      }}>
+      {saved ? '✅ Saved!' : saving ? 'Saving...' : 'Save to YouTube'}
+    </button>
   );
 }
