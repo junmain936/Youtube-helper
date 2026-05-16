@@ -1,14 +1,10 @@
-import { getServerSession } from 'next-auth';
-import SessionProvider from './SessionProvider';
+// app/layout.js - SessionProvider hatao, sirf basic layout
 
-export default async function RootLayout({ children }) {
-  const session = await getServerSession();
+export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body style={{ margin: 0, padding: 0 }}>
-        <SessionProvider session={session}>
-          {children}
-        </SessionProvider>
+        {children}
       </body>
     </html>
   );
