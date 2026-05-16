@@ -1,28 +1,19 @@
-// app/api/youtube/videos/route.js
-// Last 5 videos fetch karta hai with stats
-
-async function getAccessToken() {
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/youtube/token`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.accessToken;
-}
+import { getAccessToken } from '@/lib/getAccessToken';
 
 export async function GET() {
   try {
     const accessToken = await getAccessToken();
 
-    // Channel uploads playlist ID
     const channelRes = await fetch(
       'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true',
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const channelData = await channelRes.json();
+    if (channelData.error) throw new Error(channelData.error.message);
+
     const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (!uploadsId) return Response.json({ error: 'Channel not found' }, { status: 404 });
 
-    // Last 5 videos
     const playlistRes = await fetch(
       `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsId}&maxResults=5`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -31,7 +22,6 @@ export async function GET() {
     const videoIds = playlistData.items?.map(i => i.contentDetails.videoId).join(',');
     if (!videoIds) return Response.json({ videos: [] });
 
-    // Video details + stats
     const videosRes = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics&id=${videoIds}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
