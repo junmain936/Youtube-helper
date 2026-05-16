@@ -1,10 +1,17 @@
-export async function GET(req) {
-  const authHeader = req.headers.get('authorization');
-  const accessToken = authHeader?.replace('Bearer ', '');
-  if (!accessToken) return Response.json({ error: 'No token' }, { status: 401 });
+// app/api/youtube/videos/route.js
 
+async function getAccessToken() {
+  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  const res = await fetch(`${baseUrl}/api/youtube/token`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.accessToken;
+}
+
+export async function GET(req) {
   try {
-    // Channel uploads playlist fetch
+    const accessToken = await getAccessToken();
+
     const channelRes = await fetch(
       'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true',
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -13,7 +20,6 @@ export async function GET(req) {
     const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (!uploadsId) return Response.json({ error: 'Channel not found' }, { status: 404 });
 
-    // Videos fetch
     const playlistRes = await fetch(
       `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsId}&maxResults=50`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
