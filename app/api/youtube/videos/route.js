@@ -4,6 +4,7 @@ export async function GET() {
   try {
     const accessToken = await getAccessToken();
 
+    // Channel uploads playlist ID
     const channelRes = await fetch(
       'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true',
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -14,6 +15,7 @@ export async function GET() {
     const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
     if (!uploadsId) return Response.json({ error: 'Channel not found' }, { status: 404 });
 
+    // Last 5 video IDs
     const playlistRes = await fetch(
       `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsId}&maxResults=5`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -22,11 +24,13 @@ export async function GET() {
     const videoIds = playlistData.items?.map(i => i.contentDetails.videoId).join(',');
     if (!videoIds) return Response.json({ videos: [] });
 
+    // Full details including tags - snippet,status,statistics sab ek saath
     const videosRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics&id=${videoIds}`,
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics&id=${videoIds}&mine=true`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const videosData = await videosRes.json();
+    if (videosData.error) throw new Error(videosData.error.message);
 
     const videos = videosData.items?.map(v => ({
       id: v.id,
