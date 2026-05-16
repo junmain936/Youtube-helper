@@ -1,12 +1,4 @@
-// app/api/youtube/update/route.js
-
-async function getAccessToken() {
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/youtube/token`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.accessToken;
-}
+import { getAccessToken } from '@/lib/getAccessToken';
 
 export async function POST(req) {
   try {
@@ -23,12 +15,7 @@ export async function POST(req) {
         },
         body: JSON.stringify({
           id: videoId,
-          snippet: {
-            title,
-            description,
-            tags,
-            categoryId: categoryId || '27',
-          },
+          snippet: { title, description, tags, categoryId: categoryId || '27' },
         }),
       }
     );
