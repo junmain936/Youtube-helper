@@ -1,7 +1,5 @@
 'use client';
-import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 function auditScore(title, description, tags) {
   let score = 0;
@@ -59,9 +57,6 @@ function ScoreRing({ score }) {
 }
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-
   const [url, setUrl] = useState('');
   const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -79,11 +74,6 @@ export default function Dashboard() {
   const [toast, setToast] = useState('');
   const [optimizingDesc, setOptimizingDesc] = useState(false);
   const [aiDescription, setAiDescription] = useState('');
-  
-
-  useEffect(() => {
-    if (status === 'unauthenticated') router.push('/');
-  }, [status]);
 
   function showToast(msg) {
     setToast(msg);
@@ -91,16 +81,13 @@ export default function Dashboard() {
   }
 
   async function fetchVideo() {
-    console.log('AccessToken:', session?.accessToken);
     if (!url.trim()) return;
     setLoading(true);
     setError('');
     setVideo(null);
     setAiTags([]);
     try {
-      const res = await fetch(`/api/youtube/video?url=${encodeURIComponent(url)}`, {
-        headers: { Authorization: `Bearer ${session.accessToken}` }
-      });
+      const res = await fetch(`/api/youtube/video?url=${encodeURIComponent(url)}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setVideo(data.video);
@@ -112,22 +99,23 @@ export default function Dashboard() {
     }
     setLoading(false);
   }
+
   async function optimizeDescription() {
-  setOptimizingDesc(true);
-  setAiDescription('');
-  try {
-    const res = await fetch('/api/youtube/optimize-description', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, description }),
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    setAiDescription(data.description);
-  } catch (e) {
-    showToast('❌ ' + e.message);
-  }
-  setOptimizingDesc(false);
+    setOptimizingDesc(true);
+    setAiDescription('');
+    try {
+      const res = await fetch('/api/youtube/optimize-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setAiDescription(data.description);
+    } catch (e) {
+      showToast('❌ ' + e.message);
+    }
+    setOptimizingDesc(false);
   }
 
   async function generateTags() {
@@ -179,10 +167,7 @@ export default function Dashboard() {
 
       const res = await fetch('/api/youtube/update', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
@@ -199,12 +184,6 @@ export default function Dashboard() {
   const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
   const audit = video ? auditScore(title, description, tagList) : null;
 
-  if (status === 'loading') return (
-    <div style={{ minHeight: '100vh', background: '#080808', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>
-      Loading...
-    </div>
-  );
-
   return (
     <div style={{ minHeight: '100vh', background: '#080808', color: '#eee', fontFamily: "'DM Sans', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
@@ -215,10 +194,6 @@ export default function Dashboard() {
           <div style={{ width: 28, height: 28, background: '#ff0000', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>▶</div>
           <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>YT Audit</span>
         </div>
-        <button onClick={() => signOut({ callbackUrl: '/' })}
-          style={{ background: 'none', border: '1px solid #222', color: '#555', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-          Logout
-        </button>
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 600, margin: '0 auto' }}>
@@ -241,10 +216,6 @@ export default function Dashboard() {
           </div>
           {error && <div style={{ marginTop: 8, fontSize: 12, color: '#ef4444' }}>❌ {error}</div>}
         </div>
-{/* Debug */}
-<div style={{color:'yellow', fontSize:10, padding:8, wordBreak:'break-all'}}>
-  Token: {session?.accessToken ? session.accessToken.slice(0,30) + '...' : 'MISSING ❌'}
-</div>
 
         {video && (
           <>
@@ -313,37 +284,35 @@ export default function Dashboard() {
                 <span style={{ fontSize: 10, fontWeight: 700, color: description.length >= 200 ? '#22c55e' : '#f59e0b' }}>{description.length} chars</span>
               </div>
               <textarea value={description} onChange={e => setDescription(e.target.value)} rows={5} style={{ ...inputStyle, resize: 'vertical' }} />
-              {/* AI Optimize Button */}
-<button onClick={optimizeDescription} disabled={optimizingDesc}
-  style={{
-    width: '100%', padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
-    cursor: optimizingDesc ? 'not-allowed' : 'pointer', border: '1px solid #7c3aed44',
-    background: optimizingDesc ? '#1a1a1a' : '#1a0a2e',
-    color: optimizingDesc ? '#444' : '#a78bfa',
-    marginBottom: 8,
-  }}>
-  {optimizingDesc ? '✨ Optimizing...' : '✨ AI Optimize Description'}
-</button>
+              <button onClick={optimizeDescription} disabled={optimizingDesc}
+                style={{
+                  width: '100%', padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
+                  cursor: optimizingDesc ? 'not-allowed' : 'pointer', border: '1px solid #7c3aed44',
+                  background: optimizingDesc ? '#1a1a1a' : '#1a0a2e',
+                  color: optimizingDesc ? '#444' : '#a78bfa',
+                  marginBottom: 8,
+                }}>
+                {optimizingDesc ? '✨ Optimizing...' : '✨ AI Optimize Description'}
+              </button>
 
-{/* AI Description Preview */}
-{aiDescription && (
-  <div style={{ background: '#0e0a1a', border: '1px solid #7c3aed33', borderRadius: 10, padding: 12, marginBottom: 10 }}>
-    <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, marginBottom: 8 }}>AI OPTIMIZED DESCRIPTION</div>
-    <div style={{ fontSize: 12, color: '#888', whiteSpace: 'pre-wrap', marginBottom: 10, maxHeight: 150, overflowY: 'auto' }}>
-      {aiDescription}
-    </div>
-    <div style={{ display: 'flex', gap: 8 }}>
-      <button onClick={() => { setDescription(aiDescription); setAiDescription(''); showToast('✅ Applied!'); }}
-        style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #7c3aed44', background: '#1a0a2e', color: '#a78bfa' }}>
-        ✓ Apply
-      </button>
-      <button onClick={() => setAiDescription('')}
-        style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #333', background: '#1a1a1a', color: '#555' }}>
-        ✕ Dismiss
-      </button>
-    </div>
-  </div>
-)}
+              {aiDescription && (
+                <div style={{ background: '#0e0a1a', border: '1px solid #7c3aed33', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, marginBottom: 8 }}>AI OPTIMIZED DESCRIPTION</div>
+                  <div style={{ fontSize: 12, color: '#888', whiteSpace: 'pre-wrap', marginBottom: 10, maxHeight: 150, overflowY: 'auto' }}>
+                    {aiDescription}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => { setDescription(aiDescription); setAiDescription(''); showToast('✅ Applied!'); }}
+                      style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #7c3aed44', background: '#1a0a2e', color: '#a78bfa' }}>
+                      ✓ Apply
+                    </button>
+                    <button onClick={() => setAiDescription('')}
+                      style={{ flex: 1, padding: '8px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: '1px solid #333', background: '#1a1a1a', color: '#555' }}>
+                      ✕ Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
               <SaveBtn saving={saving.description} saved={saved.description} onClick={() => saveField('description')} />
             </div>
 
@@ -356,7 +325,6 @@ export default function Dashboard() {
 
               <textarea value={tags} onChange={e => setTags(e.target.value)} rows={3} placeholder="tag1, tag2, tag3..." style={{ ...inputStyle, resize: 'none' }} />
 
-              {/* Tag pills */}
               {tagList.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                   {tagList.map((t, i) => (
@@ -367,7 +335,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* AI Generate Button */}
               <button onClick={generateTags} disabled={generatingTags}
                 style={{
                   width: '100%', padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
@@ -379,7 +346,6 @@ export default function Dashboard() {
                 {generatingTags ? '✨ Generating SEO Tags...' : '✨ AI Generate Tags'}
               </button>
 
-              {/* AI Tags preview */}
               {aiTags.length > 0 && (
                 <div style={{ background: '#0e0a1a', border: '1px solid #7c3aed33', borderRadius: 10, padding: 12, marginBottom: 10 }}>
                   <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 800, marginBottom: 8, letterSpacing: '0.06em' }}>AI SUGGESTED TAGS ({aiTags.length})</div>
