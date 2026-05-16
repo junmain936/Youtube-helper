@@ -1,13 +1,19 @@
-export async function GET(req) {
-  const authHeader = req.headers.get('authorization');
-  const accessToken = authHeader?.replace('Bearer ', '');
-  if (!accessToken) return Response.json({ error: 'No token' }, { status: 401 });
+// app/api/youtube/video/route.js
+// Session nahi chahiye - server side se apna token leta hai
 
+async function getAccessToken() {
+  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  const res = await fetch(`${baseUrl}/api/youtube/token`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.accessToken;
+}
+
+export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const videoUrl = searchParams.get('url');
   if (!videoUrl) return Response.json({ error: 'No URL' }, { status: 400 });
 
-  // Extract video ID from URL
   let videoId = null;
   try {
     const u = new URL(videoUrl);
@@ -23,6 +29,8 @@ export async function GET(req) {
   if (!videoId) return Response.json({ error: 'Video ID not found in URL' }, { status: 400 });
 
   try {
+    const accessToken = await getAccessToken();
+
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,statistics&id=${videoId}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
