@@ -1,11 +1,9 @@
 // app/api/youtube/token/route.js
-// Server-side token refresh - koi login nahi, env se refresh token leta hai
 
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
 export async function GET() {
-  // Cache check - agar valid token hai to wahi return karo
   if (cachedToken && Date.now() < tokenExpiresAt - 60000) {
     return Response.json({ accessToken: cachedToken });
   }
@@ -16,7 +14,7 @@ export async function GET() {
 
   if (!refreshToken || !clientId || !clientSecret) {
     return Response.json(
-      { error: 'Missing env vars: YT_REFRESH_TOKEN, GOOGLE_CLIENT_ID, or GOOGLE_CLIENT_SECRET' },
+      { error: `Missing env: ${!refreshToken ? 'YT_REFRESH_TOKEN ' : ''}${!clientId ? 'GOOGLE_CLIENT_ID ' : ''}${!clientSecret ? 'GOOGLE_CLIENT_SECRET' : ''}` },
       { status: 500 }
     );
   }
@@ -36,10 +34,12 @@ export async function GET() {
     const data = await res.json();
 
     if (data.error) {
-      return Response.json({ error: data.error_description || data.error }, { status: 401 });
+      return Response.json(
+        { error: `Google OAuth error: ${data.error} — ${data.error_description}` },
+        { status: 401 }
+      );
     }
 
-    // Cache the token
     cachedToken = data.access_token;
     tokenExpiresAt = Date.now() + data.expires_in * 1000;
 
