@@ -1,10 +1,17 @@
-export async function POST(req) {
-  const authHeader = req.headers.get('authorization');
-  const accessToken = authHeader?.replace('Bearer ', '');
-  if (!accessToken) return Response.json({ error: 'No token' }, { status: 401 });
+// app/api/youtube/update/route.js
 
+async function getAccessToken() {
+  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  const res = await fetch(`${baseUrl}/api/youtube/token`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.accessToken;
+}
+
+export async function POST(req) {
   try {
     const { videoId, title, description, tags, categoryId } = await req.json();
+    const accessToken = await getAccessToken();
 
     const res = await fetch(
       'https://www.googleapis.com/youtube/v3/videos?part=snippet',
